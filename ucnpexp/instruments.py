@@ -49,6 +49,10 @@ class OscilloscopeChannel:
         return amount
     
     @property
+    def channel(self):
+        return self.osc.channel()
+
+    @property
     def buffer_size(self):
         return self.osc.buffer_size()
 
@@ -441,12 +445,9 @@ class Spectrometer(abstract.Spectrometer):
         photons = 0
         for _ in range(rounds):
             photons += self.integrate(seconds)
-            #intensity_accum += np.sum(data)
-            #intensity_squared_accum += np.sum(data*data)
         time_measured = rounds * self._osc.amount_datapoints/self._osc.sampling_rate
         return photons, time_measured
 
-    # Debería setear la escala vertical? ver en la rp
     def integrate(self, seconds):
         self._osc.set_measurement_time(seconds)
         osc_screen = np.array(self._osc.measure())
@@ -471,3 +472,24 @@ class Spectrometer(abstract.Spectrometer):
         print(f"Lamp wavelength should be {self.lamp.home_wavelength}")
         print(f"Monochromator wavelength should be {self.monochromator.home_wavelength}")
         print(f"If they are wrong, set them with spec.lamp.set_wavelength() and spec.monochromator.set_wavelength()")
+
+    @property
+    def decay_configuration(self):
+        if self._osc.channel == 0 and self._osc.trig_src == 8:
+            state = True
+        elif self._osc.channel == 1 and self._osc.trig_src == 4:
+            state = True
+        else:
+            state = False
+        return state
+
+    @property.setter
+    def decay_configuration(self, switch):
+        if switch:
+            # todo esto va en la configuración
+            self._osc.set_trigger(channel=1,
+                                 edge='pos', level=[0.4, 0.5])
+        else:
+            self._osc.set_trigger(channel=None)
+    
+    
