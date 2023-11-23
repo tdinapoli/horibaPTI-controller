@@ -40,7 +40,7 @@ class RPDI:
         return str(self.state)
 
 class OscilloscopeChannel:
-    def __init__(self, osc, channel, voltage_range, decimation=1,
+    def __init__(self, osc, channel, voltage_range,
                   trigger_post=None, trigger_pre=0):
         self.osc = osc(channel, voltage_range)
         self._channel = channel
@@ -67,6 +67,19 @@ class OscilloscopeChannel:
         while (self.osc.status_run()):
             pass
         return self.osc.data(data_points)
+    
+    def exposed_set_trigger(self, channel, edge='pos', level=None):
+        trig_src_dict = {'osc0':4, 'osc1':8}
+        self.osc.edge = edge
+        if level is None:
+            level = [0.4, 0.5]
+        if channel is None:
+            self.osc.trig_src = 0
+        elif channel in [0, 1]:
+            trigger = "osc{channel}".format(channel=channel)
+            self.osc.trig_src = trig_src_dict[trigger]
+        else:
+            print("Channel must be either 0, 1 or None")
 
     def exposed_set_decimation(self, decimation_exponent):
         if decimation_exponent not in range(0, 18):
@@ -97,6 +110,12 @@ class OscilloscopeChannel:
     def exposed_buffer_size(self):
         return self.osc.buffer_size
 
+    def exposed_trig_src(self):
+        return self.osc.trig_src
+    
+    def exposed_channel(self):
+        return self._channel
+
     # Esto tira algún tipo de warning que después 
     # Tengo que ver qué significa
     # Pero por ahora parece que funciona
@@ -106,7 +125,7 @@ class OscilloscopeChannel:
 class RPManager(rpyc.Service):
     def __init__(self):
         from redpitaya.overlay.mercury import mercury as FPGA
-        overlay = FPGA()
+        self.overlay = FPGA()
         self.gpio = FPGA.gpio
         self.osc = FPGA.osc
         self.exposed_ttls = {}
@@ -128,8 +147,8 @@ class RPManager(rpyc.Service):
         setattr(self, "exposed_{name}".format(name=name), di)
         return di
 
-    def exposed_create_osc_channel(self, *, channel, voltage_range, decimation=1,
-                                   trigger_post=None, trigger_pre=0):
+    def exposed_create_osc_channel(self, *, channel=None, voltage_range=None,
+                                   decimation=1, trigger_post=None, trigger_pre=0):
         #try:
         #    osc_ch = getattr(self, "exposed_oscilloscope_ch{channel}".format(channel=channel))
         #    osc_ch.exposed_delete()
@@ -139,7 +158,6 @@ class RPManager(rpyc.Service):
         #    pass
 
         oscilloscope_channel = OscilloscopeChannel(self.osc, channel, voltage_range,
-                                                    decimation=decimation,
                                                     trigger_post=trigger_post,
                                                     trigger_pre=trigger_pre)
         setattr(self, "exposed_oscilloscope_ch{channel}".format(channel=channel),

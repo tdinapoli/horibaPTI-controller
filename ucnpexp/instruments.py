@@ -84,6 +84,8 @@ class OscilloscopeChannel:
     def decimation(self, amount):
         self.osc.set_decimation(amount)
 
+    def set_trigger(self, channel, edge='pos', level=None):
+        self.osc.set_trigger(channel, edge='pos', level=None)
     # Esto tira algún tipo de warning que después 
     # Tengo que ver qué significa
     # Pero por ahora parece que funciona
@@ -355,7 +357,7 @@ class Spectrometer(abstract.Spectrometer):
     @classmethod
     def constructor_default(cls, conn = None, MONOCHROMATOR=Monochromator,
                              OSCILLOSCOPE_CHANNEL=OscilloscopeChannel):
-        if not conn:
+        while not conn:
             try:
                 conn = rpyc.connect('rp-f05512.local', port=18861)
             except Exception as e:
@@ -367,7 +369,7 @@ class Spectrometer(abstract.Spectrometer):
                         decimation=1, trigger_post=None, trigger_pre=0)
         lamp = MONOCHROMATOR.constructor_default(conn,
                         pin_step=6, pin_direction=7, limit_switch=2)
-        common_path = '/home/tomi/Documents/facultad/tesis/git'
+        common_path = '/home/tomi/Documents/facultad/tesis/horibaPTI-controller'
         lamp_calibration_path = f'{common_path}/excitation_calibration.yaml'
         monochromator_calibration_path = f'{common_path}/emission_calibration.yaml'
         return cls(monochromator, osc, lamp,
@@ -456,9 +458,11 @@ class Spectrometer(abstract.Spectrometer):
     # Esto tiene que contar fotones cuando lo calibre bien
     def _count_photons(self, osc_screen):
         # La altura hay que calibrarla
-        times, heights = sp.signal.find_peaks(-osc_screen, height=(-3.5, 1))
+        times, heights = self._find_signal_peaks(-osc_screen, -3.5, 1)
         return len(times)
-        # return osc_screen
+
+    def _find_signal_peaks(self, osc_screen, min_height, max_heigth):
+        return sp.signal.find_peaks(osc_screen, height=(min_height,max_heigth))
 
     def set_wavelength(self, wavelength: float):
         return self.monochromator.set_wavelength(wavelength)
@@ -483,13 +487,28 @@ class Spectrometer(abstract.Spectrometer):
             state = False
         return state
 
-    @property.setter
+    @decay_configuration.setter
     def decay_configuration(self, switch):
+        # Poner en calibracion o hacer funcion de auto calibracion
+        self._osc.decimation = 0
+        self._osc.trigger_pre = 0
+        self._osc.trigger_post = self._osc.buffer_size
         if switch:
-            # todo esto va en la configuración
+            # todo esto va en la configuración de calibracion (los números)
             self._osc.set_trigger(channel=1,
                                  edge='pos', level=[0.4, 0.5])
         else:
             self._osc.set_trigger(channel=None)
     
-    
+    def aquire_decay(self, amount_windows=1, amount_buffers=1):
+        self.decay_configuration = True
+        counts = np.array([])
+        for window in range(amount_windows):
+            buff_offset = window * self._osc.amount_datapoints
+            for _ in range(amount_buffers):
+                screen = np.array(self._osc.measure())
+                # Aca también, cambiar los números por calibracion/configuracion
+                peak_positions, _ = self._find_signal_peaks(screen, 0.16, 0.18)
+                times = (peak_positions + buff_offset) / self._osc.sampling_rate
+                counts = np.hstack((counts, times))
+        return counts    
