@@ -6,6 +6,166 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import scipy as sp
+import pyvisa
+import time
+from dataclasses import dataclass
+
+class ITC4020:
+    def __init__(self, config_path):
+        self.RESOURCE_STRING = 'string que dice el laser'
+        self.TIMEOUT = 100000
+        self.ID = 'id string'
+        rm = pyvisa.ResourceManager()
+        self.itc = rm.open_resource(self.RESOURCE_STRING)
+        self._establish_connection()
+        self.load_configuration(config_path)
+
+    def _establish_connection(self):
+        start = time.time()
+        while time.time() - start < self.TIMEOUT:
+            try:
+                msg = self.itc.query('*IDN?')
+                if msg == self.ID:
+                    print(f"Connection established as spected\n{msg}")
+                    return True
+                else:
+                    print(f"Connection established to unknown instrument\n{msg}")
+            except Exception as e:
+                print(e)
+        raise TimeoutError
+    
+    def load_configuration(self, path, verbose=False):
+        with open(path, 'r') as f:
+            self._calibration = yaml.safe_load(f)
+        for menu_name, menu_vals in self._calibration.items():
+            if verbose: print(f"Setting {menu_name} vals:")
+            for parameter, value in menu_vals.items():
+                if hasattr(self, parameter):
+                    setattr(self, parameter, value)
+                    if verbose: print("{parameter} = {value}")
+                else:
+                    print(f"ITC4020 has no attribute {parameter}")
+    
+    @property
+    def output(self):
+        print(self.itc.query('output:state?'))
+
+    # enables laser output
+    @output.setter
+    def output(self, state):
+        self.itc.write(f'output:state {int(state)}')
+
+    @property
+    def polarity(self):
+        return print(self.itc.query('output:polarity?'))
+
+    @polarity.setter
+    def polarity(self, polarity_value):
+        if polarity_value in ["CG", "AG"]:
+            self.itc.write(f'output:polarity {polarity_value}')
+        else:
+            print("Wrong polarity value")
+    
+    @property
+    def voltage_protection(self):
+        print(self.itc.query('output:protection:voltage?'))
+
+    @voltage_protection.setter
+    def voltage_protection(self, voltage_limit):
+        self.itc.query(f'output:protection:voltage {voltage_limit}')
+    
+    @property
+    def operating_mode(self):
+        print(self.itc.query('source:function:mode?'))
+
+    @operating_mode.setter
+    def operating_mode(self, mode):
+        if mode in ["current", "power"]:
+            self.itc.write(f'source:function:mode {mode}')
+        else:
+            print("Wrong operating mode")
+        
+    @property
+    def laser_current_limit(self):
+        print(self.itc.query('source:current:limit?'))
+    
+    @laser_current_limit.setter
+    def laser_current_limit(self, limit):
+        self.itc.write(f'source:current:limit {limit}')
+
+    @property
+    def optical_power_limit(self):
+        print(self.itc.query('sense:power:protection?'))
+
+    @optical_power_limit.setter
+    def optical_power_limit(self, limit):
+        self.itc.write(f'sense:power:protection {limit}')
+
+    @property
+    def laser_current(self):
+        print(self.itc.query('source:current?'))
+    
+    @laser_current.setter
+    def laser_current(self, current):
+        self.itc.write(f'source:current {current}')
+
+    @property
+    def modulation(self):
+        print(self.itc.query('source:am:state?'))        
+    
+    @modulation.setter
+    def modulation(self, state):
+        self.itc.write(f'source:am:state {state}')
+
+    @property
+    def qcw_mode(self):
+        print(self.itc.query('source:function:shape?')) 
+
+    @qcw_mode.setter
+    def qcw_mode(self, mode):
+        if mode in ["dc", 'pulse']:
+            self.itc.query(f'source:function:shape {mode}')
+        else:
+            print(f"Mode {mode} not supported")
+
+    @property
+    def trigger_source(self):
+        print(self.itc.query('trigger:source?'))
+
+    @trigger_source.setter
+    def trigger_source(self, source):
+        if source in ["internal", "external"]:
+            print(self.itc.query(f'trigger:source {source}'))
+        else:
+            print(f"Source {source} not supported")
+    
+    @property
+    def frequency(self):
+        val = float(self.itc.query("source:pulse:period?"))
+        print(1/val)
+    
+    @frequency.setter
+    def frequency(self, value):
+        self.itc.write(f'source:pulse:period {1/value}')
+
+    @property
+    def duty_cycle(self):
+        print(self.itc.query('source:pulse:dcycle?'))
+
+    @duty_cycle.setter
+    def duty_cycle(self, dc):
+        self.itc.write(f'source:pulse:dcycle {dc}')
+
+    @property
+    def hold(self):
+        print(self.itc.query('source:pulse:hold?'))
+
+    @hold.setter
+    def hold(self, value):
+        if value in ['width', 'dcycle']
+            self.itc.write(f'source:pulse:hold {value}'))
+        else:
+            print(f"Hold parameter {value} is not supported")
 
 class OscilloscopeChannel:
     def __init__(self, conn, *, channel= 0, voltage_range=20.0,

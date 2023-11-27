@@ -4,6 +4,7 @@ calibracion/
 dudas-diseño.txt
 example.ipynb
 pruebas.ipynb
+tests
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
