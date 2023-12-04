@@ -67,6 +67,17 @@ class OscilloscopeChannel:
         while (self.osc.status_run()):
             pass
         return self.osc.data(data_points)
+
+    def exposed_get_triggered(self, data_points=None):
+        if data_points is None:
+            data_points = self.osc.buffer_size
+        if data_points > self.osc.buffer_size:
+            print("Warning: the amount of data points {data_points} asked for is greater than the buffer size".format(data_points=data_points))
+        self.osc.reset()
+        self.osc.start()
+        while self.osc.status_run():
+            pass
+        return self.osc.data(data_points)
     
     def exposed_set_trigger(self, channel, edge='pos', level=None):
         trig_src_dict = {'osc0':4, 'osc1':8}

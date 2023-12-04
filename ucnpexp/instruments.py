@@ -178,13 +178,20 @@ class OscilloscopeChannel:
                                                 trigger_pre=trigger_pre)
 
     def set_measurement_time(self, seconds, offset=0, verbose=False):
-        # Debería agregarle error o algo si seconds < offset
+        if offset < -self.buffer_size / (self._maximum_sampling_rate/2**16) or (seconds + offset) <= 0:
+            print(f"Offset {offset}s not valid for {seconds}s measurement time.")
+            return
         decimation_exponent = int(np.ceil(np.log2(
             self._maximum_sampling_rate * seconds / self.buffer_size
             )))
         self.decimation = decimation_exponent
-        self.trigger_pre = offset * self.sampling_rate
-        self.trigger_post = (seconds - offset) * self.sampling_rate
+        if offset < 0:
+            self.trigger_pre = int(abs(offset) * self.sampling_rate)
+            self.trigger_post = (seconds + offset) * self.sampling_rate if (seconds + offset) > 0 else 1
+        else:
+            self.trigger_pre = 0
+            self.trigger_post = int((seconds + offset) * self.sampling_rate)
+        self._amount_datapoints = int(seconds * self.sampling_rate)
         if verbose:
             print(f"Setting decimation exponent to {decimation_exponent}")
             print(f"The sampling rate is {self._maximum_sampling_rate/self.decimation} Hz")
@@ -197,16 +204,23 @@ class OscilloscopeChannel:
         return self.amount_datapoints / self.sampling_rate
 
     # Debería cambiarle el nombre a trigger no?
-    def measure(self, transit_seconds=0.01):
+    def measure(self, transit_seconds=0.0):
         return self.osc.measure(data_points=self.amount_datapoints,
                                 transit_seconds=transit_seconds)
+
+    def get_triggered(self, data_points=None):
+        if data_points is None:
+            data_points = self.amount_datapoints
+        return self.osc.get_triggered(data_points)
     
     @property
     def amount_datapoints(self):
-        amount = self.trigger_pre + self.trigger_post 
-        if amount > self.buffer_size:
+        if self._amount_datapoints is None:
+            print("Measurement time not set yet")
+            return
+        if self._amount_datapoints > self.buffer_size:
             print("Warning: amount of data points is greater than buffer size")
-        return amount
+        return self._amount_datapoints
     
     @property
     def channel(self):
@@ -244,8 +258,12 @@ class OscilloscopeChannel:
     def decimation(self, amount):
         self.osc.set_decimation(amount)
 
+    @property
+    def trig_src(self):
+        return self.osc.trig_src()
+    
     def set_trigger(self, channel, edge='pos', level=None):
-        self.osc.set_trigger(channel, edge='pos', level=None)
+        self.osc.set_trigger(channel, edge, level)
     # Esto tira algún tipo de warning que después 
     # Tengo que ver qué significa
     # Pero por ahora parece que funciona
