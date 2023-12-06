@@ -1,5 +1,7 @@
 import rpyc
 import time
+from rp_decay import RPDecay
+import time
 
 class RPTTL:
     def __init__(self, state, pin, gpio):
@@ -140,6 +142,7 @@ class RPManager(rpyc.Service):
         self.gpio = FPGA.gpio
         self.osc = FPGA.osc
         self.exposed_ttls = {}
+        self.rpdecay = None
 
     def on_connect(self, conn):
         print("RP Manager connected")
@@ -175,6 +178,16 @@ class RPManager(rpyc.Service):
                 oscilloscope_channel)
         return oscilloscope_channel
 
+    def exposed_lifetime_experiment(self, lifetime, amount, length):
+        self.rpdecay = RPDecay(self.gpio, lifetime, amount, length)
+        print("starting worker...")
+        self.rpdecay.start()
+
+    def exposed_stop_lifetime_experiment(self):
+        print("finish requested")
+        self.rpdecay.finish_requested = True
+        self.rpdecay.join()
+        self.rpdecay = None
 
 if __name__ == "__main__":
     from rpyc.utils.server import ThreadedServer
