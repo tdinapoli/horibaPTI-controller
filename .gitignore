@@ -2,6 +2,7 @@
 user-template.py
 calibracion/
 calibration/rp_decay/data
+calibration/motores/calibration_data
 dudas-diseño.txt
 example.ipynb
 pruebas.ipynb
