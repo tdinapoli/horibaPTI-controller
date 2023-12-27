@@ -565,12 +565,12 @@ class Monochromator:
         # así nunca se pasa de rosca el mnocromador. no puedo poner el check safety porque quizás wavelength no está definido
         steps_done = 0
         steps_limit = self.home_wavelength/self.wl_step_ratio
-        while self.limit_switch.state and steps_done < steps_limit:
+        while self.limit_switch.state and steps_done < abs(steps_limit):
             self._motor.rotate_step(1, not self._greater_wl_cw)
             steps_done += 1
         if set_wavelength:# and steps_done < steps_limit:
             self.set_wavelength(self.home_wavelength)
-        elif steps_done >= steps_limit:
+        elif steps_done >= abs(steps_limit):
             print("Danger warning:")
             print(f"Wavelength could not be set. Call home method again if and only if wavelength is greater than {self.home_wavelength}")
         
@@ -744,7 +744,7 @@ class Spectrometer(abstract.Spectrometer):
         for window in range(amount_windows):
             buff_offset = window * self._osc.amount_datapoints
             for _ in range(amount_buffers):
-                screen = np.array(self._osc.measure())
+                screen = np.array(self._osc.get_triggered())
                 # Aca también, cambiar los números por calibracion/configuracion
                 peak_positions, _ = self._find_signal_peaks(screen, 0.16, 0.18)
                 times = (peak_positions + buff_offset) / self._osc.sampling_rate
