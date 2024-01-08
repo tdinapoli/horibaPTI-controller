@@ -57,6 +57,10 @@ class ITC4020:
         if self.keylock_tripped:
             print("Please unlock safety key")
             return
+        if self.modulation and self.qcw_mode == 'PULS':
+            print("Both modulation and QCW mode are on.")
+            print("Turn one off before turning on the LASER.")
+            return
         self.tec_output = True
         while self.temp_tripped:
             print("Waiting for laser to cool")
@@ -157,8 +161,16 @@ class ITC4020:
         self.itc.write(f'sense:power:protection {limit}')
 
     @property
+    def optical_power(self):
+        return float(self.itc.query('measure:power2?')[:-1])
+    
+    @property
+    def temperature(self):
+        return float(self.itc.query('measure:temperature?')[:-1])
+
+    @property
     def laser_current(self):
-        return self.itc.query('source:current?')
+        return float(self.itc.query('source:current?')[:-1])
     
     @laser_current.setter
     def laser_current(self, current):
@@ -166,22 +178,37 @@ class ITC4020:
 
     @property
     def modulation(self):
-        return self.itc.query('source:am:state?')
+        return bool(int(self.itc.query('source:am:state?')[:-1]))
     
     @modulation.setter
     def modulation(self, state):
+        # revisar: agregar para que apague qcw
+        state = bool(state)*1
         self.itc.write(f'source:am:state {state}')
 
     @property
     def qcw_mode(self):
-        return self.itc.query('source:function:shape?')
+        resp = self.itc.query('source:function:shape?')[:-1]
+        if resp == 'PULS':
+            return True
+        else:
+            return False
 
     @qcw_mode.setter
     def qcw_mode(self, mode):
-        if mode in ["dc", 'pulse']:
-            self.itc.query(f'source:function:shape {mode}')
+        # mode = False -> dc
+        # mode = True -> pulse
+        print(f"{self.qcw_mode=}, {mode=}")
+        if mode == self.qcw_mode:
+            print("Already in that mode")
+            return
+        # revisar: agregar para que apague modulation
+        if mode:
+            print(f"{self.qcw_mode=}, {mode=}")
+            self.itc.query(f'source:function:shape pulse')
         else:
-            print(f"Mode {mode} not supported")
+            print(f"{self.qcw_mode=}, {mode=}")
+            self.itc.query(f'source:function:shape dc')
 
     @property
     def trigger_source(self):
@@ -205,7 +232,7 @@ class ITC4020:
 
     @property
     def duty_cycle(self):
-        return self.itc.query('source:pulse:dcycle?')
+        return float(self.itc.query('source:pulse:dcycle?')[:-1])
 
     @duty_cycle.setter
     def duty_cycle(self, dc):
@@ -561,8 +588,6 @@ class Monochromator:
             yield self.goto_wavelength(starting_wavelength + i * wavelength_step)
 
     def home(self, set_wavelength=True):
-        # Tengo que poner un check de safety tipo "que no haga más de N pasos si nunca llegó al límite"
-        # así nunca se pasa de rosca el mnocromador. no puedo poner el check safety porque quizás wavelength no está definido
         steps_done = 0
         steps_limit = self.home_wavelength/self.wl_step_ratio
         while self.limit_switch.state and steps_done < abs(steps_limit):
