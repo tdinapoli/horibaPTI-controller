@@ -1,7 +1,13 @@
 import rpyc
 import time
 from rp_decay import RPDecay
+from rp_decay_hernan import MyThread
 import time
+import queue
+
+#from redpitaya.overlay.mercury import mercury as FPGA
+#gpio = FPGA
+#signal_pin = gpio('n', 1, 'out')
 
 class RPTTL:
     def __init__(self, state, pin, gpio):
@@ -70,7 +76,19 @@ class OscilloscopeChannel:
             pass
         return self.osc.data(data_points)
 
-    def exposed_get_triggered(self, data_points=None):
+    #def get_triggered_itc(self):
+    #    self.osc.reset()
+    #    self.osc.start()
+    #    while self.osc.status_run():
+    #        time.sleep(0.1)
+    #        signal_pin.write(True)
+    #        time.sleep(0.1)
+    #        signal_pin.write(False)
+    #    return self.osc.data(self.osc.buffer_size)
+
+    def exposed_get_triggered(self, data_points=None, itc=False):
+        #if itc:
+        #    return self.get_triggered_itc()
         if data_points is None:
             data_points = self.osc.buffer_size
         if data_points > self.osc.buffer_size:
@@ -129,6 +147,15 @@ class OscilloscopeChannel:
     def exposed_channel(self):
         return self._channel
 
+    def exposed_edge(self):
+        return self.osc.edge
+    
+    def exposed_set_edge(self, edge):
+        if edge in ['pos', 'neg']:
+            self.osc.edge = edge
+        else:
+            print("Wrong edge type")
+
     # Esto tira algún tipo de warning que después 
     # Tengo que ver qué significa
     # Pero por ahora parece que funciona
@@ -178,16 +205,15 @@ class RPManager(rpyc.Service):
                 oscilloscope_channel)
         return oscilloscope_channel
 
-    def exposed_lifetime_experiment(self, lifetime, amount, length):
-        self.rpdecay = RPDecay(self.gpio, lifetime, amount, length)
-        print("starting worker...")
+    def exposed_create_lifetime_experiment(self, lifetime, amount, length):
+        print("Creating lifetime experiment with new parameters")
+        print("lifetime", lifetime)
+        print("amount", amount)
+        print("length", length)
+        self.queue = queue.Queue()
+        #self.rpdecay = MyThread(self.queue, self.gpio, lifetime, amount, length)
+        self.rpdecay = RPDecay(self.gpio, self.queue, lifetime, amount, length)
         self.rpdecay.start()
-
-    def exposed_stop_lifetime_experiment(self):
-        print("finish requested")
-        self.rpdecay.finish_requested = True
-        self.rpdecay.join()
-        self.rpdecay = None
 
 if __name__ == "__main__":
     from rpyc.utils.server import ThreadedServer
