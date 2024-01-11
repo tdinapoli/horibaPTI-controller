@@ -1,4 +1,4 @@
-from ucnpexp.instruments import Spectrometer
+#from ucnpexp.instruments import Spectrometer
 import ipywidgets as widgets
 from IPython.display import HTML, display, clear_output
 import numpy as np
@@ -57,13 +57,11 @@ class Measurement:
 
 class SpectrometerGUI:
     def __init__(self):
-        from ucnpexp.instruments import Spectrometer
+        from ucnpexp.dummy_instruments import DummySpectrometer as Spectrometer
         self.df = None
         self.spec = Spectrometer.constructor_default()
-        #self.spec.lamp.set_wavelength(self.spec.lamp.min_wl)
-        #self.spec.monochromator.set_wavelength(self.spec.monochromator.min_wl)
-        self.spec.lamp.set_wavelength(289.5)
-        self.spec.monochromator.set_wavelength(747)
+        self.spec.lamp.home()
+        self.spec.monochromator.home()
         self.measurements = {}
         self.out = widgets.Output()
         self.style = {'description_width':'initial'}
@@ -104,7 +102,6 @@ class SpectrometerGUI:
             starting_wavelength=starting_wavelength,
             ending_wavelength=ending_wavelength,
             wavelength_step=self.wavelength_step)
-
         return self.df
 
     def disable_widgets(self, disabled, do_not_disable=[]):
