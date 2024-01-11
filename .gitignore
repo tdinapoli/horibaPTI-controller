@@ -9,6 +9,7 @@ pruebas.ipynb
 tests
 rp-server/rp_decay.py
 rp-server/rp_decay_hernan.py
+ucnpexp/abstract_menu.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
