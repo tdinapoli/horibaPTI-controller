@@ -1,26 +1,26 @@
 import rpyc
 import time
-from rp_decay import RPDecay
-from rp_decay_hernan import MyThread
-import time
-import queue
+import rp
 
 #from redpitaya.overlay.mercury import mercury as FPGA
 #gpio = FPGA
 #signal_pin = gpio('n', 1, 'out')
 
+#RP_DIO0_N
+
 class RPTTL:
-    def __init__(self, state, pin, gpio):
+    def __init__(self, state, pin):
         col, num = pin
-        self._gpio = gpio(col, num, 'out')
+        self.pin = getattr(rp, f"RP_DIO{num}_{col.upper()}")
+        rp.rp_DpinSetDirection(self.pin, rp.RP_OUT)
         self.exposed_set_state(state)
 
     @property
     def exposed_state(self):
-        return self._gpio.read()
+        return rp.rp_DpinGetState(self.pin)[-1]
 
     def exposed_set_state(self, state):
-        self._gpio.write(state)
+        rp.rp_DpinSetState(self.pin, bool(state))
 
     def exposed_toggle(self):
         self.exposed_set_state(not self.exposed_state)
@@ -36,13 +36,14 @@ class RPTTL:
         return str(self.state)
 
 class RPDI:
-    def __init__(self, pin, gpio):
+    def __init__(self, pin):
         col, num = pin
-        self._gpio = gpio(col, num, 'in')
+        self.pin = getattr(rp, f"RP_DIO{num}_{col.upper()}")
+        rp.rp_DpinSetDirection(self.pin, rp.RP_IN)
 
     @property
     def exposed_state(self):
-        return self._gpio.read()
+        return rp.rp_DpinGetState(self.pin)[-1]
 
     def __str__(self):
         return str(self.state)
@@ -218,12 +219,8 @@ class OscilloscopeChannel:
 
 class RPManager(rpyc.Service):
     def __init__(self):
-        from redpitaya.overlay.mercury import mercury as FPGA
-        self.overlay = FPGA()
-        self.gpio = FPGA.gpio
-        self.osc = FPGA.osc
+        rp.rp_Init()
         self.exposed_ttls = {}
-        self.rpdecay = None
 
     def on_connect(self, conn):
         print("RP Manager connected")
@@ -233,7 +230,7 @@ class RPManager(rpyc.Service):
 
     def exposed_create_RPTTL(self, name, config):
         state, pin = config[0], config[1:]
-        ttl = RPTTL(state, pin, self.gpio)
+        ttl = RPTTL(state, pin)
         setattr(self, "exposed_{name}".format(name=name), ttl)
         return ttl
 
@@ -245,13 +242,6 @@ class RPManager(rpyc.Service):
     def exposed_create_osc_channel(self, *, channel=None, voltage_range=None,
                                    decimation=1, trigger_post=None, trigger_pre=0,
                                    sync_channels=True):
-        #try:
-        #    osc_ch = getattr(self, "exposed_oscilloscope_ch{channel}".format(channel=channel))
-        #    osc_ch.exposed_delete()
-        #    print("Deleting oscilloscope channel {channel}".format(channel=channel))
-        #    time.sleep(1)
-        #except:
-        #    pass
 
         oscilloscope_channel = OscilloscopeChannel(self.osc, channel, voltage_range,
                                                     trigger_post=trigger_post,
@@ -261,15 +251,6 @@ class RPManager(rpyc.Service):
                 oscilloscope_channel)
         return oscilloscope_channel
 
-    def exposed_create_lifetime_experiment(self, lifetime, amount, length):
-        print("Creating lifetime experiment with new parameters")
-        print("lifetime", lifetime)
-        print("amount", amount)
-        print("length", length)
-        self.queue = queue.Queue()
-        #self.rpdecay = MyThread(self.queue, self.gpio, lifetime, amount, length)
-        self.rpdecay = RPDecay(self.gpio, self.queue, lifetime, amount, length)
-        self.rpdecay.start()
 
 if __name__ == "__main__":
     from rpyc.utils.server import ThreadedServer
