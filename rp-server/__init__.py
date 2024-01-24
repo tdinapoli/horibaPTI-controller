@@ -1,6 +1,7 @@
 import rpyc
 import time
 import rp
+import numpy as np
 
 #from redpitaya.overlay.mercury import mercury as FPGA
 #gpio = FPGA
@@ -48,43 +49,144 @@ class RPDI:
     def __str__(self):
         return str(self.state)
 
+class RPOSC:
+    def __init__(self, ch, gain, trigger_level = 0,
+                 trig_dly = None, trig_src = None):
+
+        self._GAINS_LOW = (1, 1.0, 'LV', 'lv')
+        self._GAINS_HIGH = (20, 20.0, 'HV', 'hv')
+        self._CHANNELS = (1,2)
+        self._buffer_size = int(2**14)
+
+        if ch not in self._CHANNELS:
+            raise ValueError(f"Channel should be one of {self._CHANNELS}, not {ch}")
+        self.ch = getattr(rp, f"RP_CH_{ch}")
+        
+        self.reset()
+
+        if gain not in self._GAINS_LOW + self._GAINS_HIGH:
+            raise ValueError(f"Gain should be one of {self._GAINS_LOW + self._GAINS_HIGH}, not {ch}")
+        elif gain in self._GAINS_HIGH:
+            self.gain = rp.RP_GAIN_5X
+        elif gain in self._GAINS_LOW:
+            self.gain = rp.RP_GAIN_1X
+        else:
+            raise Exception
+
+        rp.rp_AcqSetGain(self.ch, self.gain)
+
+        rp.rp_AcqSetTriggerLevel(rp.RP_T_CH_1, trigger_level)
+
+        if trig_dly is None:
+            self.trig_dly = self.buffer_size//2 
+        else:
+            self.trig_dly = trig_dly
+        rp.rp_AcqSetTriggerDelay(self.trig_dly)
+
+        if trig_src is None:
+            self.trig_src = getattr(rp, f"RP_TRIG_SRC_CHA_PE")
+
+    # The relation between trigger_pre, trigger_post, trig and
+    # trig_dly assumes the following equations are true:
+    # N = buffer_size
+    # trigger_pre + trigger_post = N
+    # trig = N//2 - trig_dly
+    # trigger_post = N - trig
+    @property
+    def trigger_pre(self):
+        return self.buffer_size - self.trigger_post
+
+    @trigger_pre.setter
+    def trigger_pre(self, val):
+        self.trigger_post = self.buffer_size - val
+    
+    @property
+    def trigger_post(self):
+        return self.buffer_size - self.trig
+
+    @trigger_post.setter
+    def trigger_post(self, val):
+        self.trig = self.buffer_size - val
+
+    @property
+    def trig_dly(self):
+        return rp.rp_AcqGetTriggerDelay()[-1]
+
+    @trig_dly.setter
+    def trig_dly(self, dly):
+        rp.rp_AcqSetTriggerDelay(dly)
+
+    @property
+    def trig(self):
+        return self._buffer_size - self.trig_dly
+    
+    @trig.setter
+    def trig(self, val):
+        self.trig_dly = self.buffer_size//2 - val
+
+    @property
+    def buffer_size(self):
+        return self._buffer_size
+
+    def reset(self):
+        rp.rp_AcqReset()
+
+    def start(self):
+        rp.rp_AcqStart()
+
+    def trigger(self):
+        rp.rp_AcqSetTriggerSrc(rp.RP_TRIG_SRC_NOW)
+
+    def status_run(self):
+        return rp.rp_AcqGetTriggerState()[1] != rp.RP_TRIG_STATE_TRIGGERED
+
+    def data(self, amount_datapoints = None):
+        if amount_datapoints is None:
+            amount_datapoints = self.buffer_size
+        fbuff = rp.fBuffer(self.buffer_size)
+        return np.fromiter(fbuff, dtype=float, count=self.buffer_size)[:amount_datapoints]
+
+    @property
+    def level(self):
+        return rp.rp_AcqGetTriggerLevel(self.ch)[-1]
+    
+    def level(self, new_level):
+        rp.rp_AcqSetTriggerLevel(self.ch, new_level)
+
+    @property
+    def trig_src(self):
+        return self._trig_src
+    
+    @trig_src.setter
+    def trig_src(self, trig_src):
+        rp.rp_AcqSetTriggerSrc(trig_src)
+        self._trig_src = trig_src
+
+    @property
+    def decimation(self):
+        return 2**rp.rp_AcqGetDecimation()[-1]
+    
+    @decimation.setter
+    def decimation(self, dec):
+        dec = getattr(rp, f"RP_DEC_{int(dec)}")
+        return rp.rp_AcqSetDecimation(dec)
+
+
 class OscilloscopeChannel:
     def __init__(self, osc, channel, voltage_range,
-                  trigger_post=None, trigger_pre=0,
-                  sync_channels=True):
+                  trigger_post=None, trigger_pre=0):
 
-        self._osc_sync_num, self.osc = self.init_channel(osc, channel,
-                                voltage_range, trigger_post, trigger_pre)
-        self.sync_channels = sync_channels
+        self.osc = osc(channel, voltage_range)
+        if trigger_post is None:
+            self.osc.trigger_post = self.osc.buffer_size
+        else:
+            self.osc.trigger_post = trigger_post
 
-        if sync_channels:
-            self.alt_channel = (channel-1)%2
-            self._alt_osc_sync_num, self.alt_osc = self.init_channel(osc,
-                self.alt_channel, voltage_range, trigger_post,
-                trigger_pre)
-            self.alt_osc.sync_src = self._osc_sync_num
+        self.osc.trigger_pre = trigger_pre
 
         self._channel = channel
         self._maximum_sampling_rate = 125e6
 
-    def init_channel(self, osc, channel, voltage_range, trigger_post,
-                     trigger_pre):
-        if channel == 0:
-            ch = osc(channel, voltage_range)
-            sync_num = 2
-        elif channel == 1:
-            ch = osc(channel, voltage_range)
-            sync_num = 3
-        else:
-            raise ValueError("Wrong channel number. Should be either 0 or 1")
-        
-        if trigger_post is None:
-            ch.trigger_post = osc.buffer_size
-        else:
-            ch.trigger_post = trigger_post
-        ch.trigger_pre = trigger_pre
-        return sync_num, ch
-        
     def exposed_measure(self, data_points=None, transit_seconds=0):
         if data_points is None:
             data_points = self.osc.buffer_size
@@ -119,10 +221,6 @@ class OscilloscopeChannel:
             data_points = self.osc.buffer_size
         if data_points > self.osc.buffer_size:
             print("Warning: the amount of data points {data_points} asked for is greater than the buffer size".format(data_points=data_points))
-        print(self.osc.level, self.alt_osc.level)
-        print(self.osc.sync_src, self.alt_osc.sync_src)
-        print(self.osc.trig_src, self.alt_osc.trig_src)
-        print(self.osc.show_regset())
         self.osc.reset()
         self.osc.start()
         while self.osc.status_run():
@@ -130,47 +228,39 @@ class OscilloscopeChannel:
         return self.osc.data(data_points)
     
     def exposed_set_trigger(self, channel, edge='pos', level=None):
-        trig_src_dict = {'osc0':4, 'osc1':8, 'gen0':1, 'gen1':2,
-                          'la':32, 'lg':16}
-        self.osc.edge = edge
+        trig_src_dict = {(1, 'pos'):rp.RP_TRIG_SRC_CHA_PE,
+                         (1, 'neg'):rp.RP_TRIG_SRC_CHA_NE,
+                         (2, 'pos'):rp.RP_TRIG_SRC_CHB_PE,
+                         (2, 'neg'):rp.RP_TRIG_SRC_CHB_NE,
+                         (3, 'pos'):rp.RP_TRIG_SRC_EXT_PE,
+                         (3, 'neg'):rp.RP_TRIG_SRC_EXT_NE
+                         }
         if level is None:
-            self.osc.level = [0.48, 0.5]
+            self.osc.level = 0.5
         else:
-            print(level, self.osc.level)
             self.osc.level = level
+
         if channel is None:
-            self.osc.trig_src = 0
-        elif channel in (0, 1):
-            trigger = "osc{channel}".format(channel=channel)
+            self.osc.trig_src = trig_src_dict[(1, 'pos')]
+        elif channel in (1, 2, 3):
+            trigger = (channel, edge)
             self.osc.trig_src = trig_src_dict[trigger]
         elif channel in trig_src_dict.keys():
             self.osc.trig_src = trig_src_dict[channel]
         else:
-            print("Setting channel", channel)
-            self.osc.trig_src = channel
-            #print("Channel must be either 0, 1 or None")
+            print("Wrong channel")
 
-        if self.sync_channels:
-            self.alt_osc.edge = edge
-            self.alt_osc.level = self.osc.level
-            self.alt_osc.trig_src = self.osc.trig_src
 
     def exposed_set_decimation(self, decimation_exponent):
         if decimation_exponent not in range(0, 18):
-            print("Warning: decimation should be a power of 2 between 0 and 17, not", decimation_exponent)
+            raise ValueError(f"Decimation exponent should be in range(0, 18), not {decimation_exponent}")
         self.osc.decimation = 2**decimation_exponent
-        if self.sync_channels:
-            self.alt_osc.decimation = 2**decimation_exponent
     
     def exposed_set_trigger_pre(self, trigger_pre):
         self.osc.trigger_pre = int(trigger_pre)
-        if self.sync_channels:
-            self.alt_osc.trigger_pre = int(trigger_pre)
 
     def exposed_set_trigger_post(self, trigger_post):
         self.osc.trigger_post = int(trigger_post)
-        if self.sync_channels:
-            self.alt_osc.trigger_post = int(trigger_post)
 
     def exposed_decimation(self):
         return self.osc.decimation
@@ -196,21 +286,6 @@ class OscilloscopeChannel:
     def exposed_channel(self):
         return self._channel
 
-    def exposed_edge(self):
-        if self.sync_channels:
-            return [self.osc.edge, self.alt_osc.edge]
-        else:
-            return self.osc.edge
-    
-    def exposed_set_edge(self, edge):
-        if edge in ['pos', 'neg']:
-            self.osc.edge = edge
-        else:
-            print("Wrong edge type")
-            return
-        if self.sync_channels:
-            self.alt_osc.edge = edge
-
     # Esto tira algún tipo de warning que después 
     # Tengo que ver qué significa
     # Pero por ahora parece que funciona
@@ -221,6 +296,7 @@ class RPManager(rpyc.Service):
     def __init__(self):
         rp.rp_Init()
         self.exposed_ttls = {}
+        self.osc = RPOSC
 
     def on_connect(self, conn):
         print("RP Manager connected")
@@ -240,13 +316,11 @@ class RPManager(rpyc.Service):
         return di
 
     def exposed_create_osc_channel(self, *, channel=None, voltage_range=None,
-                                   decimation=1, trigger_post=None, trigger_pre=0,
-                                   sync_channels=True):
+                                   decimation=1, trigger_post=None, trigger_pre=0):
 
         oscilloscope_channel = OscilloscopeChannel(self.osc, channel, voltage_range,
                                                     trigger_post=trigger_post,
-                                                    trigger_pre=trigger_pre,
-                                                    sync_channels=sync_channels)
+                                                    trigger_pre=trigger_pre)
         setattr(self, "exposed_oscilloscope_ch{channel}".format(channel=channel),
                 oscilloscope_channel)
         return oscilloscope_channel
